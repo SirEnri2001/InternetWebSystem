@@ -206,7 +206,7 @@ class RequestHandler implements Callable<Object> {
                 if(uris.isEmpty()){
                     continue;
                 }
-                uris.removeLast();
+                uris.remove(uris.size()-1);
             }
             uriBuilder.append(s);
         }
