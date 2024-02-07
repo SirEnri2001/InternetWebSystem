@@ -95,8 +95,7 @@ class RequestHandler implements Callable<Object> {
 
                     if(requestedSince>fileModifiedSince){
                         logger.info("Not modified");
-                        printWriter.println("HTTP/1.1 304 Not Modified");
-                        printWriter.println("");
+                        printWriter.write("HTTP/1.1 304 Not Modified\r\n\r\n");
                         printWriter.flush();
                         continue;
                     }
@@ -107,13 +106,12 @@ class RequestHandler implements Callable<Object> {
             }
 
             try{
-                printWriter.println("HTTP/1.1 200 OK");
+                printWriter.write("HTTP/1.1 200 OK\r\n");
                 byte[] fileContent = getResponseContent(
                         headerMap.get("Uri"),
                         0, -1
                 );
-                printWriter.println(String.format("Content-Length: %1$s",fileContent.length));
-                printWriter.println("");
+                printWriter.write(String.format("Content-Length: %1$s\r\n\r\n",fileContent.length));
                 printWriter.flush();
                 socket.getOutputStream().write(fileContent);
             }catch (FileNotFoundException fnf){
