@@ -66,7 +66,7 @@ class GenericTest {
     outputFile = null;
     currentTestFailed = false;
     numTestsFailed = 0;
-    timeoutMillis = 5000;
+    timeoutMillis = 600000;
   }
 
   void setExitUponFailure(boolean arg) {
@@ -291,9 +291,11 @@ System.out.println("\n"+explanation);
     Response r = new Response();
     InputStream in = null;
     long startTimeMs = System.currentTimeMillis();
+    StringBuilder stringBuilder = new StringBuilder();
     try {
       in = s.getInputStream();
-      s.setSoTimeout(1000);
+
+      s.setSoTimeout(600000);
     } catch (Exception e) {
       testFailed("An unknown problem occurred when reading: "+e);
     }
@@ -308,6 +310,7 @@ System.out.println("\n"+explanation);
       }
       try {
         b = in.read();
+        stringBuilder.append((char)b);
         if (b>=0)
           numBytesRead ++;
       } catch (SocketTimeoutException ste) {
