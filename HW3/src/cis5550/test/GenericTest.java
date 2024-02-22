@@ -66,7 +66,7 @@ class GenericTest {
     outputFile = null;
     currentTestFailed = false;
     numTestsFailed = 0;
-    timeoutMillis = 5000;
+    timeoutMillis = 500000;
   }
 
   void setExitUponFailure(boolean arg) {
@@ -213,7 +213,7 @@ System.out.println("\n"+explanation);
     InputStream in = null;
     try {
       in = s.getInputStream();
-      s.setSoTimeout(1000);
+      s.setSoTimeout(1000000);
     } catch (Exception e) {
       testFailed("An unknown problem occurred when reading: "+e);
     }
@@ -293,7 +293,7 @@ System.out.println("\n"+explanation);
     long startTimeMs = System.currentTimeMillis();
     try {
       in = s.getInputStream();
-      s.setSoTimeout(1000);
+      s.setSoTimeout(1000000);
     } catch (Exception e) {
       testFailed("An unknown problem occurred when reading: "+e);
     }

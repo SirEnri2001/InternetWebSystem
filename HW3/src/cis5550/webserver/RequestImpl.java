@@ -7,6 +7,7 @@ import java.nio.charset.*;
 // Provided as part of the framework code
 
 class RequestImpl implements Request {
+  boolean createSession = false;
   String method;
   String url;
   String protocol;
@@ -14,10 +15,22 @@ class RequestImpl implements Request {
   Map<String,String> headers;
   Map<String,String> queryParams;
   Map<String,String> params;
+  Map<String, String> cookieMap;
   byte bodyRaw[];
   Server server;
+  String sessionId;
 
-  RequestImpl(String methodArg, String urlArg, String protocolArg, Map<String,String> headersArg, Map<String,String> queryParamsArg, Map<String,String> paramsArg, InetSocketAddress remoteAddrArg, byte bodyRawArg[], Server serverArg) {
+  RequestImpl(
+          String methodArg,
+          String urlArg,
+          String protocolArg,
+          Map<String,String> headersArg,
+          Map<String,String> queryParamsArg,
+          Map<String,String> paramsArg,
+          Map<String, String> cookie,
+          InetSocketAddress remoteAddrArg,
+          byte bodyRawArg[],
+          Server serverArg) {
     method = methodArg;
     url = urlArg;
     remoteAddr = remoteAddrArg;
@@ -27,6 +40,10 @@ class RequestImpl implements Request {
     params = paramsArg;
     bodyRaw = bodyRawArg;
     server = serverArg;
+    this.cookieMap = cookie;
+    if(cookieMap.get("SessionID")!=null){
+      sessionId = cookieMap.get("SessionID");
+    }
   }
 
   public String requestMethod() {
@@ -77,12 +94,18 @@ class RequestImpl implements Request {
 
   @Override
   public Session session() {
-    return null;
+    return server.getSession(this);
+  }
+  @Override
+  public Map<String, String> cookies() {
+    return cookieMap;
   }
 
   public Map<String,String> params() {
     return params;
   }
 
-
+  public String getSessionId(){
+    return sessionId;
+  }
 }

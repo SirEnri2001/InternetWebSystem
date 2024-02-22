@@ -15,8 +15,12 @@ public class ResponseImpl implements Response {
     String statusDetail;
     public boolean isHeaderWritten;
     Socket socket;
-    public ResponseImpl(Socket socket){
+    Request request;
+    Server server;
+    public ResponseImpl(Socket socket,Request req, Server server){
         this.socket = socket;
+        this.server = server;
+        request = req;
     }
     @Override
     public void body(String body) {
@@ -57,6 +61,9 @@ public class ResponseImpl implements Response {
                 printWriter.write(String.format("Content-Type: %1$s\r\n",contentType));
             }
             printWriter.write(headerBuilder.toString());
+            if(((RequestImpl)request).createSession){
+                printWriter.write(String.format("Set-Cookie:SessionID=%1$s\r\n",((RequestImpl) request).getSessionId()));
+            }
             printWriter.write("\r\n");
         }
         printWriter.flush();

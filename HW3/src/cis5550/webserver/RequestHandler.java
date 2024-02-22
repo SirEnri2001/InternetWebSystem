@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
@@ -27,11 +28,12 @@ import java.util.concurrent.ConcurrentHashMap;
 
 class RequestHandler implements Callable<Object> {
     Socket socket;
+    Server server;
     private final Logger logger;
     private final ConcurrentHashMap<String[], Route> getMap;
     private final ConcurrentHashMap<String[], Route> putMap;
     private final ConcurrentHashMap<String[], Route> postMap;
-    public RequestHandler(Socket socket, Logger logger,
+    public RequestHandler(Socket socket, Logger logger, Server server,
                           ConcurrentHashMap<String[], Route> getMap,
                           ConcurrentHashMap<String[], Route> putMap,
                           ConcurrentHashMap<String[], Route> postMap
@@ -41,6 +43,7 @@ class RequestHandler implements Callable<Object> {
         this.getMap = getMap;
         this.putMap = putMap;
         this.postMap = postMap;
+        this.server = server;
     }
 
     public Route matchRoute(String uri, Request request, final ConcurrentHashMap<String[], Route> map) {
@@ -93,7 +96,12 @@ class RequestHandler implements Callable<Object> {
 
     @Override
     public Object call() throws Exception {
-        doRequestWorker();
+        try{
+            doRequestWorker();
+        }catch (Exception e){
+            e.printStackTrace();
+            throw e;
+        }
         return null;
     }
 
@@ -106,12 +114,12 @@ class RequestHandler implements Callable<Object> {
         printWriter.flush();
     }
 
-    public void onStaticGet(HashMap<String, String> headerMap) throws HttpException, IOException {
+    public void onStaticGet(Request request) throws HttpException, IOException {
         Path file = null;
         BasicFileAttributes attr = null;
 
         try{
-            file = Paths.get(Server.getLocation(), headerMap.get("uri"));
+            file = Paths.get(Server.getLocation(), request.url());
             attr = Files.readAttributes(file, BasicFileAttributes.class);
         }catch (InvalidPathException ipe){
             throw new HttpException(400, "Invalid Path");
@@ -122,12 +130,12 @@ class RequestHandler implements Callable<Object> {
 
         PrintWriter printWriter = new PrintWriter(socket.getOutputStream());
         FileTime fileTime = null;
-        if(headerMap.get("If-Modified-Since".toLowerCase())!=null && headerMap.get("uri")!=null){
+        if(request.headers("If-Modified-Since".toLowerCase())!=null && request.url()!=null){
             fileTime = attr.lastModifiedTime();
             DateTimeFormatter formatter = DateTimeFormatter.RFC_1123_DATE_TIME;
             TemporalAccessor ret = null;
             try{
-                ret = formatter.parse(headerMap.get("If-Modified-Since".toLowerCase()));
+                ret = formatter.parse(request.headers("If-Modified-Since".toLowerCase()));
             }catch(DateTimeParseException e){
                 throw new HttpException(400, "Bad request: Datetime in If-Modified-Since is Invalid");
             }
@@ -161,8 +169,8 @@ class RequestHandler implements Callable<Object> {
         logger.info(String.format("Remote %1$s : %2$s %3$s",
                 socket.getRemoteSocketAddress(), 200, "OK"));
     }
-    public void onStaticPut(HashMap<String, String> headerMap, byte[] body) throws IOException {
-        StaticFileUtil.writeStaticFile(Paths.get(Server.getLocation(), headerMap.get("uri")).toString(), body, false);
+    public void onStaticPut(Request request) throws IOException {
+        StaticFileUtil.writeStaticFile(Paths.get(Server.getLocation(), request.url()).toString(), request.bodyAsBytes(), false);
         PrintWriter printWriter = new PrintWriter(socket.getOutputStream());
         printWriter.write("HTTP/1.1 200 OK\r\n");
         printWriter.flush();
@@ -170,8 +178,8 @@ class RequestHandler implements Callable<Object> {
                 socket.getRemoteSocketAddress(), 200, "OK"));
 
     }
-    public void onStaticPost(HashMap<String, String> headerMap, byte[] body) throws IOException {
-        StaticFileUtil.writeStaticFile(Paths.get(Server.getLocation(), headerMap.get("uri")).toString(), body, true);
+    public void onStaticPost(Request request) throws IOException {
+        StaticFileUtil.writeStaticFile(Paths.get(Server.getLocation(), request.url()).toString(), request.bodyAsBytes(), true);
         PrintWriter printWriter = new PrintWriter(socket.getOutputStream());
         printWriter.write("HTTP/1.1 200 OK\r\n");
         printWriter.flush();
@@ -185,11 +193,13 @@ class RequestHandler implements Callable<Object> {
         try{
             obj = r.handle(req, resp);
             logger.info("Handle exits");
+            logger.info("Sessionid "+req.session().id());
         }catch (Exception e){
+            e.printStackTrace();
             if(((ResponseImpl)resp).isHeaderWritten){
                 throw new SocketException("Server Error, close connection");
             }
-            throw new HttpException(500, "Internal Server Error on "+getMap.get("Method")+" "+getMap.get("Uri"));
+            throw new HttpException(500, "Internal Server Error on "+req.requestMethod()+" "+req.url());
         }
         try{
             if(obj!=null){
@@ -218,73 +228,29 @@ class RequestHandler implements Callable<Object> {
         while(!isEOF){
             socket.getOutputStream().flush();
             logger.info("Incoming connection from: "+socket.getRemoteSocketAddress());
-            HashMap<String, String> headerMap = getHeaderMap(socket);
-            switch(headerMap.get("method").toUpperCase()){
-                case "GET":
-                case "POST":
-                case "PUT":
-                    break;
-                case "HEAD":
-                case "DELETE":
-                case "CONNECT":
-                case "OPTION":
-                case "TRACE":
-                case "PATCH":
-                    throw new HttpException(405, "Method Not Allowed");
-                default:
-                    throw new HttpException(501, "Not Implemented");
-            }
-            if(!headerMap.get("version").equalsIgnoreCase("HTTP/1.1")){
-                throw new HttpException(505, "Version Not Supported");
-            }
-            validateHeaderMap(headerMap);
-            if(headerMap.get("connection")!=null && headerMap.get("connection").equalsIgnoreCase("close")){
+            Request req = getRequest(socket);
+            if(req.headers("connection")!=null && req.headers("connection").equalsIgnoreCase("close")){
                 isEOF = true;
             }
-            byte[] reqBody = null;
-            if(headerMap.get("content-length")!=null){
-                reqBody = getBodyString(socket, Integer.parseInt(headerMap.get("content-length")));
-            }
+            Response resp = new ResponseImpl(socket, req, server);
             Route r = null;
-            InetSocketAddress socketAddress = new InetSocketAddress(socket.getInetAddress(),socket.getPort());
-            HashMap<String, String> queryMap = new HashMap<>();
-            appendQueryMap(headerMap.get("query"), queryMap);
-            if(headerMap.get("content-type")!=null && headerMap.get("content-type").equalsIgnoreCase("application/x-www-form-urlencoded")){
-                if(reqBody==null){
-                    throw new HttpException(400, "Bad request");
-                }
-                appendQueryMap(new String(reqBody), queryMap);
-            }
-            Request req = new RequestImpl(
-                    headerMap.get("method"),
-                    headerMap.get("uri"),
-                    headerMap.get("version"),
-                    headerMap,
-                    queryMap,
-                    new HashMap<>(),
-                    socketAddress,
-                    reqBody,
-                    Server.serverInstance
-            );
-            Response resp = new ResponseImpl(socket);
-
-            switch(headerMap.get("method").toUpperCase()){
+            switch(req.requestMethod().toUpperCase()){
                 case "GET":
-                    r = matchRoute(headerMap.get("uri"), req, getMap);
+                    r = matchRoute(req.url(), req, getMap);
                     if(r==null) {
-                        onStaticGet(headerMap);
+                        onStaticGet(req);
                     }
                     break;
                 case "PUT":
-                    r = matchRoute(headerMap.get("uri"), req, putMap);
+                    r = matchRoute(req.url(), req, putMap);
                     if(r==null) {
-                        onStaticPut(headerMap, reqBody);
+                        onStaticPut(req);
                     }
                     break;
                 case "POST":
-                    r = matchRoute(headerMap.get("uri"), req, postMap);
+                    r = matchRoute(req.url(), req, postMap);
                     if(r==null) {
-                        onStaticPost(headerMap, reqBody);
+                        onStaticPost(req);
                     }
                     break;
                 default:
@@ -321,24 +287,28 @@ class RequestHandler implements Callable<Object> {
         return headerStringArray;
     }
 
-    public HashMap<String, String> getHeaderMap(Socket socket) throws HttpException, IOException {
+    public Request getRequest(Socket socket) throws HttpException, IOException {
         LinkedList<String> headerStringList = getHeaderStringList(socket);
         HashMap<String, String> retMap = new HashMap<>();
+        String method = "";
+        String uri = "";
+        String query = "";
+        String version = "";
         boolean isMethodLine = true;
         for(String line : headerStringList){
             if(isMethodLine){
                 try{
                     String[] methodUriVersion = line.split(" ");
-                    retMap.put("method", methodUriVersion[0].trim().toLowerCase());
+                    method = methodUriVersion[0].trim().toLowerCase();
                     String uriWithQuery = methodUriVersion[1].trim();
                     if(uriWithQuery.contains("?")){
                         String[] uriQuery = uriWithQuery.split("\\\\*\\?");
-                        retMap.put("uri", uriQuery[0]);
-                        retMap.put("query", uriQuery[1]);
+                        uri = uriQuery[0];
+                        query = uriQuery[1];
                     }else{
-                        retMap.put("uri", uriWithQuery);
+                        uri = uriWithQuery;
                     }
-                    retMap.put("version", methodUriVersion[2].trim().toLowerCase());
+                    version = methodUriVersion[2].trim().toLowerCase();
                     if(line.indexOf(':')!=-1){
                         throw new HttpException(400, "Bad Request");
                     }
@@ -357,7 +327,63 @@ class RequestHandler implements Callable<Object> {
                 throw new HttpException(400, "Bad Request");
             }
         }
-        return retMap;
+        uri = validateUri(uri);
+        switch(method.toUpperCase()){
+            case "GET":
+            case "POST":
+            case "PUT":
+                break;
+            case "HEAD":
+            case "DELETE":
+            case "CONNECT":
+            case "OPTION":
+            case "TRACE":
+            case "PATCH":
+                throw new HttpException(405, "Method Not Allowed");
+            default:
+                throw new HttpException(501, "Not Implemented");
+        }
+        if(!version.equalsIgnoreCase("HTTP/1.1")){
+            throw new HttpException(505, "Version Not Supported");
+        }
+        byte[] reqBody = null;
+        if(retMap.get("content-length")!=null){
+            reqBody = getBodyString(socket, Integer.parseInt(retMap.get("content-length")));
+        }
+        InetSocketAddress socketAddress = new InetSocketAddress(socket.getInetAddress(),socket.getPort());
+        HashMap<String, String> queryMap = new HashMap<>();
+        appendQueryMap(query, queryMap);
+        if(retMap.get("content-type")!=null && retMap.get("content-type").equalsIgnoreCase("application/x-www-form-urlencoded")){
+            if(reqBody==null){
+                throw new HttpException(400, "Bad request");
+            }
+            appendQueryMap(new String(reqBody), queryMap);
+        }
+        HashMap<String, String> cookieMap = new HashMap<>();
+        if(retMap.get("cookie")!=null){
+            try{
+                String cookieString = retMap.get("cookie");
+                String[] cookies = cookieString.split(";");
+                for(String cookie : cookies){
+                    String[] kv = cookie.split("=");
+                    cookieMap.put(kv[0],kv[1]);
+                }
+            }catch (ArrayIndexOutOfBoundsException e){
+                throw new HttpException(400, "Cookie format error");
+            }
+        }
+        return new RequestImpl(
+                method,
+                uri,
+                version,
+                retMap,
+                queryMap,
+                new HashMap<>(),
+                cookieMap,
+                socketAddress,
+                reqBody,
+                server
+        );
     }
 
     public byte[] getBodyString(Socket socket, int contentLength) throws SocketException, IOException {
@@ -368,30 +394,28 @@ class RequestHandler implements Callable<Object> {
         return resBody;
     }
 
-    public void validateHeaderMap(HashMap<String, String> headerMap) throws HttpException {
-        String uri = headerMap.get("uri");
-        uri = uri.replace('\\','/');
+    public String validateUri(String uri) throws HttpException {
+        uri = uri.replace('\\', '/');
         StringBuilder uriBuilder = new StringBuilder();
         ArrayList<String> uris = new ArrayList<>();
-        for(String s : uri.split("/")){
-            if(s.isEmpty()){
+        for (String s : uri.split("/")) {
+            if (s.isEmpty()) {
                 continue;
             }
-            if(s.equals("..")){
-                if(uris.isEmpty()){
+            if (s.equals("..")) {
+                if (uris.isEmpty()) {
                     continue;
                 }
-                uris.remove(uris.size()-1);
+                uris.remove(uris.size() - 1);
             }
             uriBuilder.append(s);
             uriBuilder.append("/");
         }
-        for(String s : uris){
+        for (String s : uris) {
             uriBuilder.append(s);
         }
-        headerMap.put("uri", uriBuilder.toString());
+        return uriBuilder.toString();
     }
-
     public void doRequestWorker() throws IOException{
         try{
             try{
@@ -404,6 +428,7 @@ class RequestHandler implements Callable<Object> {
             }
             socket.close();
         }catch (SocketException socketException){
+            socketException.printStackTrace();
             logger.info(String.format("Remote %1$s : %2$s",
                     socket.getRemoteSocketAddress(), socketException.getMessage()));
         }

@@ -3,10 +3,33 @@ import cis5550.tools.Logger;
 
 import java.io.*;
 import java.net.*;
+import java.util.UUID;
 import java.util.concurrent.*;
 import javax.net.ServerSocketFactory;
 import javax.net.ssl.*;
 import java.security.*;
+
+class SessionDaemon implements Runnable{
+    SessionImpl session;
+    public SessionDaemon(SessionImpl sessionImpl){
+        session = sessionImpl;
+    }
+    @Override
+    public void run() {
+        while(true){
+            try {
+                Thread.sleep(session.lastAccessTime+session.maxTimeInterval-System.currentTimeMillis());
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            if(session.lastAccessTime+session.maxTimeInterval-System.currentTimeMillis()<0){
+                session.invalidate();
+                return;
+            }
+        }
+
+    }
+}
 public class Server {
     public static Server serverInstance = null;
     public static boolean isServerRunning = false;
@@ -17,6 +40,34 @@ public class Server {
     private ConcurrentHashMap<String[], Route> getRoutesMap = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String[], Route> putRoutesMap = new ConcurrentHashMap<>();
     private ConcurrentHashMap<String[], Route> postRoutesMap = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<String, Session> idSessions = new ConcurrentHashMap<>();
+
+    public void putSession(String sessionId, Session session){
+        if(session==null){
+            idSessions.remove(sessionId);
+        }else{
+            idSessions.put(sessionId, session);
+        }
+    }
+
+    public  Session getSession(Request req){
+        RequestImpl reqImpl = ((RequestImpl)req);
+        String sessionId = reqImpl.getSessionId();
+        if (sessionId==null || sessionId.isEmpty() || idSessions.get(sessionId)==null){
+            UUID uuid = UUID.randomUUID();
+            sessionId = uuid.toString();
+            SessionImpl sessionImpl = new SessionImpl(this);
+            sessionImpl.sessionId = sessionId;
+            idSessions.put(sessionId, sessionImpl);
+            reqImpl.createSession = true;
+            reqImpl.sessionId = sessionId;
+            Thread t = new Thread(new SessionDaemon(sessionImpl));
+            t.start();
+        }
+        SessionImpl session = (SessionImpl) idSessions.get(sessionId);
+        session.updateLastAccessTime();
+        return session;
+    }
 
     public static String getLocation(){
         return location;
@@ -111,7 +162,7 @@ public class Server {
         }
         while(true){
             Socket socket = ssock.accept();
-            executorService.submit(new RequestHandler(socket, logger, getRoutesMap,putRoutesMap, postRoutesMap));
+            executorService.submit(new RequestHandler(socket, logger, this, getRoutesMap,putRoutesMap, postRoutesMap));
         }
     }
 
@@ -129,12 +180,21 @@ public class Server {
         ExecutorService executorService = Executors.newFixedThreadPool(NUM_WORKERS);
         while(true){
             Socket socket = serverSocketTLS.accept();
-            executorService.submit(new RequestHandler(socket, logger, getRoutesMap,putRoutesMap, postRoutesMap));
+            executorService.submit(new RequestHandler(socket, logger, this, getRoutesMap,putRoutesMap, postRoutesMap));
         }
     }
 
     public static void main(String args[]) throws Exception {
-        securePort(8443);
-        get("/", (req,res) -> { return "Hello World!"; });
+        port(80);
+        securePort(443);
+        get("/echo/:x", (req,res) -> { return req.params("x"); });
+        get("/session", (req,res) -> {
+            Session s = req.session();
+            if (s == null)
+                return "null";
+            return s.id(); });
+        get("/perm/:x", (req,res) -> { Session s = req.session(); s.maxActiveInterval(1); if (s.attribute("test") == null) s.attribute("test", req.params("x")); return s.attribute("test"); });
+
+        get("/", (req,res) -> { return "Hello World - this is Xinghua Han"; });
     }
 }

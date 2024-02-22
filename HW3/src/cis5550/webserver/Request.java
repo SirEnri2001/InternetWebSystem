@@ -64,4 +64,5 @@ public interface Request {
   // return the same Session object; it should never return null. If the method is never called,
   // no Session object should be created.
   Session session();
+  Map<String, String> cookies();
 };
