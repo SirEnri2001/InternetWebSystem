@@ -5,6 +5,7 @@ import java.io.*;
 import cis5550.kvs.KVSClient;
 
 public interface FlameContext {
+
   public KVSClient getKVS();
 
 
@@ -21,4 +22,5 @@ public interface FlameContext {
   // need to be parallelized.
 
   public FlameRDD parallelize(List<String> list) throws Exception;
+
 }

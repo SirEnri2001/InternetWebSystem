@@ -92,7 +92,7 @@ public class HW6Test extends GenericTest {
     if (tests.contains("flatmap")) try {
       startTest("flatmap", "RDD.flatMap()", 25);
       try {
-        String[] words = new String[] { "apple", "banana", "coconut", "date", "elderberry", "fig", "guava" };
+        String[] words = new String[] { "apple", "banana", "coconut", "date", "zebra", "fig", "worley" };
         LinkedList<String> theWords = new LinkedList<String>();
         Random r = new Random();
         int num = 5+r.nextInt(10);

@@ -13,9 +13,8 @@ class Coordinator extends cis5550.generic.Coordinator {
 
   private static final Logger logger = Logger.getLogger(Coordinator.class);
   private static final String version = "v1.5 Jan 1 2023";
-
+  public static FlameContextImpl flameContextImpl;
   static int nextJobID = 1;
-  public static KVSClient kvs;
 
 	public static void main(String args[]) {
 
@@ -27,7 +26,6 @@ class Coordinator extends cis5550.generic.Coordinator {
     }
    
     int myPort = Integer.valueOf(args[0]);
-    kvs = new KVSClient(args[1]);
 
     logger.info("Flame coordinator ("+version+") starting on port "+myPort);
 
@@ -40,6 +38,10 @@ class Coordinator extends cis5550.generic.Coordinator {
       response.type("text/html");
       return "<html><head><title>Flame coordinator</title></head><body><h3>Flame Coordinator</h3>\n" + clientTable() + "</body></html>";
     });
+
+    get("/kvs", ((request, response) -> {
+      return args[1];
+    }));
 
     /* Set up the main route for job submissions. This is invoked from FlameSubmit. */
 
@@ -109,8 +111,9 @@ class Coordinator extends cis5550.generic.Coordinator {
       // in which case we'll get an InvocationTargetException. We'll extract the underlying cause and report it
       // back to the user in the HTTP response, to help with debugging.
 
+      flameContextImpl = new FlameContextImpl(jarName, args[1]);
       try {
-        Loader.invokeRunMethod(jarFile, className, new FlameContextImpl(jarName), argVector);
+        Loader.invokeRunMethod(jarFile, className, flameContextImpl, argVector);
       } catch (IllegalAccessException iae) {
         response.status(400, "Bad request");
         return "Double-check that the class "+className+" contains a public static run(FlameContext, String[]) method, and that the class itself is public!";
@@ -124,8 +127,7 @@ class Coordinator extends cis5550.generic.Coordinator {
         response.status(500, "Job threw an exception");
         return sw.toString();
       }
-
-      return "(add job output here)";
+      return flameContextImpl.getOutput();
     });
 
     get("/version", (request, response) -> { return "v1.2 Oct 28 2022"; });
