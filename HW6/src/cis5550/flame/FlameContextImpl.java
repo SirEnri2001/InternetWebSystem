@@ -25,7 +25,7 @@ public class FlameContextImpl implements FlameContext{
             throws IOException {
         String outputTableName = Hasher.hash(UUID.randomUUID().toString());
         Partitioner p = new Partitioner();
-        p.setKeyRangesPerWorker(2);
+        p.setKeyRangesPerWorker(1);
         if(kvsClient.numWorkers()==1){
             p.addKVSWorker(kvsClient.getWorkerAddress(0), null, null);
         }

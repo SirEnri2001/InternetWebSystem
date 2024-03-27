@@ -104,7 +104,12 @@ class Worker extends cis5550.generic.Worker {
                 }
             }
             for(String key : keyAccumulator.keySet()){
-                kvsClient.put(resTable, fromTable, key, keyAccumulator.get(key));
+                byte[] valueStored = kvsClient.get(resTable, fromTable, key);
+                if(valueStored==null){
+                    kvsClient.put(resTable, fromTable, key, keyAccumulator.get(key));
+                }else{
+                    kvsClient.put(resTable, fromTable, key, lambda.op(keyAccumulator.get(key), new String(valueStored)));
+                }
             }
 
             return "OK";
