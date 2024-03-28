@@ -100,6 +100,19 @@ public class FlameContextImpl implements FlameContext{
         return flameRDD;
     }
 
+    @Override
+    public FlameRDD fromTable(String tableName, RowToString lambda) throws Exception {
+        String resultTable = Coordinator.flameContextImpl.invokeOperation(
+                tableName, "fromTable", Serializer.objectToByteArray(lambda), null
+        );
+        return new FlameRDDImpl(resultTable, kvsClient.getCoordinator());
+    }
+
+    @Override
+    public void setConcurrencyLevel(int keyRangesPerWorker) {
+
+    }
+
 
     public String getOutput(){
         return outputBuilder.toString();
