@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="flame.Worker" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="cis5550.flame.Worker" />
+    <module name="HW8" />
+    <option name="PROGRAM_PARAMETERS" value="9001 localhost:9000" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

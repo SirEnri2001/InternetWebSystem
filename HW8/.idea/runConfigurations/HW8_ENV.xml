@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="HW8 ENV" type="CompoundRunConfigurationType">
+    <toRun name="flame.Coordinator" type="Application" />
+    <toRun name="flame.Worker" type="Application" />
+    <toRun name="kvs.Coordinator" type="Application" />
+    <toRun name="kvs.Worker" type="Application" />
+    <method v="2" />
+  </configuration>
+</component>

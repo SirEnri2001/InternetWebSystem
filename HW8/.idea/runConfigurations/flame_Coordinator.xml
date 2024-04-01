@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="flame.Coordinator" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="cis5550.flame.Coordinator" />
+    <module name="HW8" />
+    <option name="PROGRAM_PARAMETERS" value="9000 localhost:8000" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

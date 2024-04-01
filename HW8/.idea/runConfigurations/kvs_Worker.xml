@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="kvs.Worker" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="cis5550.kvs.Worker" />
+    <module name="HW8" />
+    <option name="PROGRAM_PARAMETERS" value="8001 worker1 localhost:8000" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
