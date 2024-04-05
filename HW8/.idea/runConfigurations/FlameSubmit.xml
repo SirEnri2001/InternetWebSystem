@@ -2,7 +2,7 @@
   <configuration default="false" name="FlameSubmit" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="cis5550.flame.FlameSubmit" />
     <module name="HW8" />
-    <option name="PROGRAM_PARAMETERS" value="localhost:9000 crawler.jar cis5550.jobs.Crawler http://simple.crawltest.cis5550.net/" />
+    <option name="PROGRAM_PARAMETERS" value="localhost:9000 crawler.jar cis5550.jobs.Crawler http://advanced.crawltest.cis5550.net/" />
     <method v="2">
       <option name="Make" enabled="true" />
     </method>

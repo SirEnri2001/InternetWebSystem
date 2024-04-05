@@ -1,7 +1,10 @@
 package cis5550.jobs;
 
 import cis5550.flame.FlameContext;
+import cis5550.flame.FlameContextImpl;
 import cis5550.flame.FlameRDD;
+import cis5550.generic.Coordinator;
+import cis5550.kvs.KVSClient;
 import cis5550.kvs.Row;
 import cis5550.tools.Hasher;
 import cis5550.tools.URLParser;
@@ -44,6 +47,63 @@ public class Crawler {
         }
         normalizedUrl = normalizedUrl.substring(0, normalizedUrl.indexOf(':'));
         return normalizedUrl;
+    }
+
+    private static String getProtocol(String normalizedUrl){
+        Pattern protocol = Pattern.compile("https?://", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = protocol.matcher(normalizedUrl);
+        if(matcher.find()){
+            normalizedUrl = normalizedUrl.substring(0, matcher.end()-3);
+        }else{
+            return null;
+        }
+        return normalizedUrl;
+    }
+
+    private static boolean isCrawable(String normalizedUrl, String robots){
+        String path = normalizedUrl.substring(normalizedUrl.indexOf('/', 8));
+        if(robots.isEmpty()){
+            return true;
+        }
+        String[] strings = robots.split("cis5550-crawler");
+        String rulesString = "";
+        if(strings.length>1){
+            rulesString = strings[1].split("User-agent:")[0];
+        }else{
+            strings = robots.split("User-agent: \\*");
+            if(strings.length<2){
+                return true;
+            }
+            rulesString = strings[1].split("User-agent")[0];
+        }
+        ArrayList<String> ruleList = new ArrayList<>();
+        HashMap<String, String> ruleMap = new HashMap<>();
+        for(String rule : rulesString.split("\n")) {
+            String[] pair = rule.split(":");
+            if(pair.length==1){
+                continue;
+            }
+            if(pair[1].trim().charAt(0)!='/'){
+                continue;
+            }
+            ruleList.add(pair[1].trim());
+            ruleMap.put(pair[1].trim(), pair[0].trim());
+        }
+        Collections.sort(ruleList);
+        Collections.reverse(ruleList);
+        for(String s : ruleList){
+            String[] pair = path.split(s);
+            if(pair.length==1){
+                continue;
+            }
+            if(ruleMap.get(s).equals("Allow")){
+                return true;
+            }
+            if(ruleMap.get(s).equals("Disallow")){
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String normalizeUrl(String url, String referNormalized) throws Exception {
@@ -144,6 +204,24 @@ public class Crawler {
         urlBuilder.append(url);
         return urlBuilder.toString();
     }
+
+    private static StringBuilder retrieveFromInputStream(InputStream inputStream) throws IOException, InterruptedException {
+        StringBuilder txt = new StringBuilder();
+        BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStream));
+        int trapped = 0;
+        while(txt.isEmpty() || bufferedReader.ready()){
+            txt.append((char)bufferedReader.read());
+            if(!bufferedReader.ready()){
+                trapped++;
+                Thread.sleep(200);
+            }
+            if(trapped>50){
+                break;
+            }
+        }
+        return txt;
+    }
+
     public static List<String> parseHtml(String html) throws IOException {
         StringBuilder tagBuilder = new StringBuilder();
         LinkedList<String> hrefs = new LinkedList<>();
@@ -191,14 +269,45 @@ public class Crawler {
                     }
                     URL url = new URL(urlString);
                     String hostName= getHostName(urlString);
+                    String protocol = getProtocol(urlString);
+                    if(!protocol.equalsIgnoreCase("http") && !protocol.equalsIgnoreCase("http")) {
+                        return new LinkedList<>();
+                    }
                     Row hostRow = flameContext.getKVS().getRow(hostsTableName, Hasher.hash(hostName));
-                    if(hostRow!=null && System.currentTimeMillis() - Long.parseLong(hostRow.get("lastAccessed"))<1000L){
+                    if(hostRow!=null && System.currentTimeMillis() - Long.parseLong(hostRow.get("lastAccessed"))<1L){
                         LinkedList<String> ret = new LinkedList<>();
                         ret.add(urlString);
-                        Thread.sleep(1000);
+                        //Thread.sleep(1);
                         return ret;
                     }
-                    flameContext.getKVS().put(hostsTableName,Hasher.hash(hostName),"lastAccessed", String.valueOf(System.currentTimeMillis()));
+                    String txt = "";
+                    if(hostRow==null){
+                        HttpURLConnection hostRobotTextConnection =
+                                (HttpURLConnection) new URL( protocol + "://" + hostName+"/robots.txt").openConnection();
+                        hostRobotTextConnection.setRequestMethod("GET");
+                        hostRobotTextConnection.setRequestProperty("User-Agent","cis5550-crawler");
+
+                        if(hostRobotTextConnection.getResponseCode()==200){
+                            txt = retrieveFromInputStream(hostRobotTextConnection.getInputStream()).toString();
+                        }
+                        flameContext.getKVS().put(hostsTableName,Hasher.hash(hostName),"robots.txt", txt);
+                        if(txt.split("Crawl-delay").length>1){
+                            flameContext.getKVS().put(
+                                    hostsTableName,
+                                    Hasher.hash(hostName),
+                                    "Crawl-delay",
+                                    txt.split("Crawl-delay")[1].split("\n")[0].trim());
+                        }
+                    }else{
+                        txt = flameContext.getKVS().getRow(hostsTableName, Hasher.hash(hostName)).get("robots.txt");
+                    }
+                    if(!isCrawable(urlString, txt)){
+                        return new LinkedList<>();
+                    }
+                    flameContext.getKVS().put(
+                            hostsTableName,Hasher.hash(hostName),
+                            "lastAccessed",
+                            String.valueOf(System.currentTimeMillis()));
                     HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();
                     httpURLConnection.setRequestMethod("HEAD");
                     httpURLConnection.setRequestProperty("User-Agent","cis5550-crawler");
@@ -232,11 +341,7 @@ public class Crawler {
                         flameContext.getKVS().putRow(tableName, row);
                         return new LinkedList<>();
                     }
-                    StringBuilder html = new StringBuilder();
-                    BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(httpURLConnection.getInputStream()));
-                    while(html.isEmpty() || bufferedReader.ready()){
-                        html.append((char)bufferedReader.read());
-                    }
+                    StringBuilder html = retrieveFromInputStream(httpURLConnection.getInputStream());
                     row.put("page", html.toString());
                     List<String> hrefs = parseHtml(html.toString());
                     LinkedList<String> normalizedHrefs = new LinkedList<>();
@@ -246,6 +351,7 @@ public class Crawler {
                     flameContext.getKVS().putRow(tableName, row);
                     return normalizedHrefs;
                 }catch (Exception e){
+                    e.printStackTrace();
                 }
                 return new LinkedList<>();
             };
@@ -265,6 +371,14 @@ public class Crawler {
     }
 
     public static void main(String[] strings) throws Exception {
-        System.out.println(normalizeUrl("../../a/","https://foo.com:8000/bar/foo/xyz.html"));
+//        String txt = "User-agent: Googlebot\n" +
+//                "Disallow: /\n" +
+//                "\n" +
+//                "User-agent: *\n" +
+//                "Crawl-delay: 0.01\n" +
+//                "Disallow: /nocrawl\n" +
+//                "Allow: /nocrawl/Table\n" +
+//                "Allow: /";
+//        System.out.println(isCrawable("http://advanced.crawltest.cis5550.net:80/nocrawl/Table/aVzUge/vVJ1JCLL3ka8WMYlo.html", txt));
     }
 }
