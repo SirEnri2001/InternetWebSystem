@@ -135,6 +135,7 @@ public class Crawler {
                 resDomain = url;
                 url = "";
             }
+        }else if(Pattern.compile("://", Pattern.CASE_INSENSITIVE).matcher(url).find()) { throw new Exception("Unknown protocol");
         }else if (referNormalized==null){
             throw new Exception("Cannot normalize url!");
         }
@@ -195,6 +196,7 @@ public class Crawler {
         for(String s: urlPath){
             url = "/"+ s +url;
         }
+        if(url.lastIndexOf(".")!=-1 && !url.substring(url.lastIndexOf(".")+1).equals("html")) throw new Exception("Invalid file type: "+url);
         StringBuilder urlBuilder = new StringBuilder();
         urlBuilder.append(resProtocol);
         urlBuilder.append("://");
@@ -205,11 +207,11 @@ public class Crawler {
         return urlBuilder.toString();
     }
 
-    private static StringBuilder retrieveFromInputStream(InputStream inputStream) throws IOException, InterruptedException {
+    private static StringBuilder retrieveFromInputStream(InputStream inputStream, int length) throws IOException, InterruptedException {
         StringBuilder txt = new StringBuilder();
         BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStream));
         int trapped = 0;
-        while(txt.isEmpty() || bufferedReader.ready()){
+        while(length-->0){
             txt.append((char)bufferedReader.read());
             if(!bufferedReader.ready()){
                 trapped++;
@@ -274,7 +276,7 @@ public class Crawler {
                         return new LinkedList<>();
                     }
                     Row hostRow = flameContext.getKVS().getRow(hostsTableName, Hasher.hash(hostName));
-                    if(hostRow!=null && System.currentTimeMillis() - Long.parseLong(hostRow.get("lastAccessed"))<1L){
+                    if(hostRow!=null && System.currentTimeMillis() - Long.parseLong(hostRow.get("lastAccessed"))<(hostRow.get("Crawl-delay")!=null?Math.max(Integer.parseInt(hostRow.get("Crawl-delay")), 1000):1000)) {
                         LinkedList<String> ret = new LinkedList<>();
                         ret.add(urlString);
                         //Thread.sleep(1);
@@ -288,7 +290,7 @@ public class Crawler {
                         hostRobotTextConnection.setRequestProperty("User-Agent","cis5550-crawler");
 
                         if(hostRobotTextConnection.getResponseCode()==200){
-                            txt = retrieveFromInputStream(hostRobotTextConnection.getInputStream()).toString();
+                            txt = retrieveFromInputStream(hostRobotTextConnection.getInputStream(), hostRobotTextConnection.getContentLength()).toString();
                         }
                         flameContext.getKVS().put(hostsTableName,Hasher.hash(hostName),"robots.txt", txt);
                         if(txt.split("Crawl-delay").length>1){
@@ -309,6 +311,7 @@ public class Crawler {
                             "lastAccessed",
                             String.valueOf(System.currentTimeMillis()));
                     HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();
+                    httpURLConnection.setInstanceFollowRedirects(false);
                     httpURLConnection.setRequestMethod("HEAD");
                     httpURLConnection.setRequestProperty("User-Agent","cis5550-crawler");
                     Row row = new Row(Hasher.hash(urlString));
@@ -320,7 +323,7 @@ public class Crawler {
                                 String newUrl = httpURLConnection.getHeaderField("Location");
                                 flameContext.getKVS().putRow(tableName, row);
                                 LinkedList<String> ret = new LinkedList<>();
-                                ret.add(newUrl);
+                                ret.add(normalizeUrl(newUrl, urlString));
                                 return ret;
                             }
                         }
@@ -335,13 +338,14 @@ public class Crawler {
                         return new LinkedList<>();
                     }
                     httpURLConnection = (HttpURLConnection) url.openConnection();
+                    httpURLConnection.setInstanceFollowRedirects(false);
                     httpURLConnection.setRequestMethod("GET");
                     httpURLConnection.setRequestProperty("User-Agent","cis5550-crawler");
                     if(httpURLConnection.getResponseCode()!=200){
                         flameContext.getKVS().putRow(tableName, row);
                         return new LinkedList<>();
                     }
-                    StringBuilder html = retrieveFromInputStream(httpURLConnection.getInputStream());
+                    StringBuilder html = retrieveFromInputStream(httpURLConnection.getInputStream(), httpURLConnection.getContentLength());
                     row.put("page", html.toString());
                     List<String> hrefs = parseHtml(html.toString());
                     LinkedList<String> normalizedHrefs = new LinkedList<>();
