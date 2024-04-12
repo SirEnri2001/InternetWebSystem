@@ -178,7 +178,6 @@ public class PageRank {
         }).mapToPair((String s)->{
             return new FlamePair(s.split("\\|")[0],s.split("\\|")[1]);
         });
-        flamePairRDD.saveAsTable("state_table");
         double maxDifference = 0.0;
         do {
             maxDifference = 0.0;
@@ -200,8 +199,12 @@ public class PageRank {
                 double v1 = Double.parseDouble(s1);
                 double v2 = Double.parseDouble(s2);
                 return String.valueOf(v1 + v2);
+            }).flatMapToPair((FlamePair pair)->{
+                LinkedList<FlamePair> pairs = new LinkedList<>();
+                pairs.add(pair);
+                System.out.println(pair._1()+", "+pair._2());
+                return pairs;
             });
-            flamePairRDD1.saveAsTable("transfer_table");
             flamePairRDD = flamePairRDD.join(flamePairRDD1).flatMapToPair((FlamePair pair)->{
                 try{
                     String[] strings = pair._2().split(",");
@@ -247,7 +250,7 @@ public class PageRank {
                 return String.valueOf(Math.max(Double.parseDouble(s1),Double.parseDouble(s2)));
             });
             maxDifference = Double.parseDouble(foldRes);
-        }while(maxDifference>0.01);
+        }while(maxDifference>0.001);
         flamePairRDD.flatMapToPair((FlamePair pair)->{
             double rank = Double.parseDouble(pair._2().split(",")[0]);
             flameContext.getKVS().put("pt-pageranks", pair._1(), "rank", String.valueOf(rank));
